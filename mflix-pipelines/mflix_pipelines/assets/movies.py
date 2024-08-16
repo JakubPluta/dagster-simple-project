@@ -1,11 +1,13 @@
 from dagster_snowflake import SnowflakeIOManager, SnowflakeResource
-
-from dagster import asset
+from ..partitions import monthly_partition
+from dagster import MonthlyPartitionsDefinition
+from dagster import asset, AssetExecutionContext
 
 import os
 import pandas as pd
 
 import matplotlib.pyplot as plt
+
 
 # dlt_mongodb_embedded_movies
 # dlt_mongodb_movies
@@ -34,31 +36,47 @@ def user_engagements(snowflake: SnowflakeResource) -> None:
     engagements.to_csv("data/user_engagements.csv", index=False)
 
 
-@asset(deps=["dlt_mongodb_embedded_movies"])
-def top_movies_by_month(snowflake: SnowflakeResource) -> None:
-    query = """
-        select 
+@asset(deps=["dlt_mongodb_embedded_movies"], partitions_def=monthly_partition)
+def top_movies_by_month(context, snowflake: SnowflakeResource) -> None:
+    """
+    Top movie genres based on IMBD ratings, partitioned by month
+    """
+    partition_date = context.partition_key
+
+    query = f"""
+        select
             movies.title,
             movies.released,
             movies.imdb__rating,
             movies.imdb__votes,
             genres.value as genres
-            
         from embedded_movies movies
-        join EMBEDDED_MOVIES__GENRES genres
+        join embedded_movies__genres genres
             on movies._dlt_id = genres._dlt_parent_id
-        where released >= '2015-01-01'::date
-        and released < '2015-01-01'::date + interval '1 month'
+        where released >= '{partition_date}'::date
+        and released < '{partition_date}'::date + interval '1 month'
     """
     with snowflake.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(query)
-        top_movies = cursor.fetch_pandas_all()
-    top_movies['window'] = '2015-01-01'
-    top_movies = top_movies.loc[top_movies.groupby('GENRES')['IMDB__RATING'].idxmax()]
-    
-    with open("data/top_movies_by_month.csv", "w") as f:
-        top_movies.to_csv(f, index=False)
+        movies_df = cursor.fetch_pandas_all()
+
+    # Find top films per genre
+    movies_df["partition_date"] = partition_date
+    # Get the index/rows of top ratings per genre
+    _selected = movies_df.groupby("GENRES")["IMDB__RATING"].idxmax()
+    # Drop the NA values
+    _selected = _selected.dropna()
+    movies_df = movies_df.loc[_selected]
+
+    try:
+        existing = pd.read_csv("data/top_movies_by_month.csv")
+        existing = existing[existing["partition_date"] != partition_date]
+        existing = pd.concat([existing, movies_df]).sort_values(by="partition_date")
+        existing.to_csv("data/top_movies_by_month.csv", index=False)
+    except FileNotFoundError:
+        movies_df.to_csv("data/top_movies_by_month.csv", index=False)
+
 
 @asset(
     deps=["user_engagement"],
@@ -67,19 +85,29 @@ def top_movies_by_engagement():
     """
     Generate a bar chart based on top 10 movies by engagement
     """
-    movie_engagement = pd.read_csv('data/user_engagements.csv')
-    top_10_movies = movie_engagement.sort_values(by='NUMBER_OF_COMMENTS', ascending=False).head(10)
+    movie_engagement = pd.read_csv("data/user_engagements.csv")
+    top_10_movies = movie_engagement.sort_values(
+        by="NUMBER_OF_COMMENTS", ascending=False
+    ).head(10)
 
     plt.figure(figsize=(10, 8))
-    bars = plt.barh(top_10_movies['TITLE'], top_10_movies['NUMBER_OF_COMMENTS'], color='skyblue')
+    bars = plt.barh(
+        top_10_movies["TITLE"], top_10_movies["NUMBER_OF_COMMENTS"], color="skyblue"
+    )
 
     # Add year_released as text labels
-    for bar, year in zip(bars, top_10_movies['YEAR_RELEASED'].astype(int)):
-        plt.text(bar.get_width() + 5, bar.get_y() + bar.get_height() / 2, f'{year}',
-                 va='center', ha='left', color='black')
+    for bar, year in zip(bars, top_10_movies["YEAR_RELEASED"].astype(int)):
+        plt.text(
+            bar.get_width() + 5,
+            bar.get_y() + bar.get_height() / 2,
+            f"{year}",
+            va="center",
+            ha="left",
+            color="black",
+        )
 
-    plt.xlabel('Engagement (comments)')
-    plt.ylabel('Movie Title')
-    plt.title('Top Movie Engagement with Year Released')
+    plt.xlabel("Engagement (comments)")
+    plt.ylabel("Movie Title")
+    plt.title("Top Movie Engagement with Year Released")
     plt.gca().invert_yaxis()
-    plt.savefig('data/top_movie_engagement.png')
+    plt.savefig("data/top_movie_engagement.png")
