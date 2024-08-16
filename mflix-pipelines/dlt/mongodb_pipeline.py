@@ -21,7 +21,7 @@ def load_select_collection_db(pipeline: Pipeline = None) -> LoadInfo:
         # Create a pipeline
         pipeline = dlt.pipeline(
             pipeline_name="local_mongo",
-            destination='snowflake',
+            destination="snowflake",
             dataset_name="mongo_select",
         )
 
@@ -65,7 +65,7 @@ def load_select_collection_db_filtered(pipeline: Pipeline = None) -> LoadInfo:
         # Create a pipeline
         pipeline = dlt.pipeline(
             pipeline_name="local_mongo",
-            destination='snowflake',
+            destination="snowflake",
             dataset_name="mongo_select_incremental",
         )
 
@@ -92,7 +92,7 @@ def load_select_collection_hint_db(pipeline: Pipeline = None) -> LoadInfo:
         # Create a pipeline
         pipeline = dlt.pipeline(
             pipeline_name="local_mongo",
-            destination='snowflake',
+            destination="snowflake",
             dataset_name="mongo_select_hint",
         )
 
@@ -114,7 +114,7 @@ def load_entire_database(pipeline: Pipeline = None) -> LoadInfo:
         # Create a pipeline
         pipeline = dlt.pipeline(
             pipeline_name="local_mongo",
-            destination='snowflake',
+            destination="snowflake",
             dataset_name="mongo_database",
         )
 
@@ -136,7 +136,7 @@ def load_collection_with_arrow(pipeline: Pipeline = None) -> LoadInfo:
         # Create a pipeline
         pipeline = dlt.pipeline(
             pipeline_name="local_mongo",
-            destination='snowflake',
+            destination="snowflake",
             dataset_name="mongo_select_incremental",
             full_refresh=True,
         )
